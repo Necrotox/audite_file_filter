@@ -39,4 +39,6 @@ def move_file_to_archive_in_end_of_day():
 
 
 if __name__ == '__main__':
+    #move_file_to_archive_in_end_of_day()
     sched.start()
+
