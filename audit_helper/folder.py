@@ -1,82 +1,162 @@
 import os
-import pandas as pd
 import re
-import geopandas
 import shutil
 import logging
+import json
+from tkinter import Tk, Label, Entry, Button, messagebox
+from apscheduler.schedulers.background import BackgroundScheduler
+import tzlocal
+from datetime import datetime
 
-path = os.environ.get('PROJECT_PATH', 'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder')
-topath = 'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/folder'
-df = os.listdir('C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/download_from_pyrus')
-scole = []
-task_file = pd.ExcelFile(f'{path}/audit_files/' + os.listdir(f'{path}/audit_files')[0])
-list_of_files = os.listdir(r'C:\Users\aleksandrovva1\Desktop\spare_files_for_folder\download_from_pyrus')
-number_of_request = input('Введи номер запроса')
-request_number = input('Введи пункт запроса')
+# Путь к файлу с настройками
+from folder import create_folder_structure, move_files_to_folder, extract_audit_info_from_filename
+from move_files_from_folder_to_arcive import move_file_to_archive_in_end_of_day
+from move_files_to_i_dicect import sync_files
 
+SETTINGS_FILE = 'settings.json'
 
+# Настройки по умолчанию
+DEFAULT_SETTINGS = {
+    'PROJECT_PATH': 'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder',
+    'topath': 'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/folder',
+    'archive_path': 'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/file_to_l_or_to_audit',
+    'l_disk_path': 'L:/Analiz/01. МСФО/01. Рабочие файлы/'
+}
 
-def find_request_number():
-    for file in list_of_files:
-        shutil.move(f'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/download_from_pyrus/{file}',
-                    f'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/prepared_files/{number_of_request + "_" + request_number + "_" + file}')
+# Настройки логирования
+logging.basicConfig(
+    filename=os.path.join(DEFAULT_SETTINGS['PROJECT_PATH'], 'load_files_for_purpose.log'),
+    filemode='a',
+    format='%(levelname)s %(message)s, %(asctime)s',
+    datefmt='%Y.%m.%d %H:%M:%S',
+    level=logging.DEBUG
+)
 
+# Инициализация планировщика
+sched = BackgroundScheduler(timezone=tzlocal.get_localzone_name())
 
-def make_dir():
-    list_of_tasks = task_file.sheet_names
-    prep_names = []
-    for i in range(0, len(list_of_tasks)):
-        if list_of_tasks[i][0] not in '012345678910':
-            pass
+def load_settings():
+    """Загружает настройки из файла или использует значения по умолчанию"""
+    if os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, 'r') as f:
+            return json.load(f)
+    return DEFAULT_SETTINGS
+
+def save_settings(settings):
+    """Сохраняет настройки в файл"""
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(settings, f)
+
+class Application(Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Управление задачами")
+        self.geometry("650x500")
+
+        self.settings = load_settings()
+
+        self.project_path_entry = Entry(self, width=60)
+        self.topath_entry = Entry(self, width=60)
+        self.archive_path_entry = Entry(self, width=60)
+        self.l_disk_path_entry = Entry(self, width=60)
+
+        self.number_of_request_entry = Entry(self)
+        self.request_number_entry = Entry(self)
+
+        self.initialize_ui()
+
+    def initialize_ui(self):
+        """Инициализация интерфейса"""
+        Label(self, text="Путь к проекту:").grid(row=0, column=0, padx=10, pady=10)
+        self.project_path_entry.grid(row=0, column=1, padx=10, pady=10)
+        self.project_path_entry.insert(0, self.settings['PROJECT_PATH'])
+
+        Label(self, text="Путь к папке:").grid(row=1, column=0, padx=10, pady=10)
+        self.topath_entry.grid(row=1, column=1, padx=10, pady=10)
+        self.topath_entry.insert(0, self.settings['topath'])
+
+        Label(self, text="Путь к архиву:").grid(row=2, column=0, padx=10, pady=10)
+        self.archive_path_entry.grid(row=2, column=1, padx=10, pady=10)
+        self.archive_path_entry.insert(0, self.settings['archive_path'])
+
+        Label(self, text="Путь к L диску:").grid(row=3, column=0, padx=10, pady=10)
+        self.l_disk_path_entry.grid(row=3, column=1, padx=10, pady=10)
+        self.l_disk_path_entry.insert(0, self.settings['l_disk_path'])
+
+        Button(self, text="Сохранить настройки", command=self.save_settings).grid(row=4, column=0, columnspan=2,
+                                                                                  padx=10, pady=10)
+        Label(self, text="Номер запроса:").grid(row=5, column=0, padx=10, pady=10)
+        self.number_of_request_entry.grid(row=5, column=1, padx=10, pady=10)
+
+        Label(self, text="Пункт запроса:").grid(row=6, column=0, padx=10, pady=10)
+        self.request_number_entry.grid(row=6, column=1, padx=10, pady=10)
+
+        Button(self, text="Старт", command=self.start_process).grid(row=7, column=0, columnspan=2, pady=10)
+
+        Button(self, text="Старт задачи", command=self.start_tasks).grid(row=8, column=0, columnspan=2, pady=10)
+        Button(self, text="Остановить задачи", command=self.stop_tasks).grid(row=9, column=0, columnspan=2, pady=10)
+
+    def save_settings(self):
+        """Сохраняет настройки в файл"""
+        self.settings['PROJECT_PATH'] = self.project_path_entry.get()
+        self.settings['topath'] = self.topath_entry.get()
+        self.settings['archive_path'] = self.archive_path_entry.get()
+        self.settings['l_disk_path'] = self.l_disk_path_entry.get()
+        save_settings(self.settings)
+        messagebox.showinfo("Успех", "Настройки сохранены")
+
+    def start_tasks(self):
+        """Запуск задач"""
+        try:
+            sched.add_job(sync_files, 'cron', day_of_week='0-5', hour='17', minute='25-50')
+            sched.add_job(move_file_to_archive_in_end_of_day, 'cron', day_of_week='0-5', hour='17', minute='28-32')
+            sched.start()
+            messagebox.showinfo("Успех", "Задачи запущены")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка при запуске задач: {str(e)}")
+
+    def stop_tasks(self):
+        """Остановка задач"""
+        try:
+            sched.shutdown(wait=False)
+            messagebox.showinfo("Успех", "Задачи остановлены")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка при остановке задач: {str(e)}")
+
+    def start_process(self):
+        """Обработка нажатия кнопки Старт"""
+        number_of_request = self.number_of_request_entry.get()
+        request_number = self.request_number_entry.get()
+
+        if not number_of_request or not request_number:
+            messagebox.showerror("Ошибка", "Пожалуйста, заполните все поля")
+            return
+
+        # Путь к аудит файлам
+        audit_files_folder = os.path.join(self.settings['PROJECT_PATH'], 'audit_files')
+        audit_file_path = os.path.join(audit_files_folder, os.listdir(audit_files_folder)[0])
+
+        # Извлекаем информацию о периоде аудита из имени файла
+        audit_period = extract_audit_info_from_filename(audit_file_path)
+
+        if audit_period:
+            # Создаем структуру папок
+            main_folder = create_folder_structure(audit_period, number_of_request, request_number)
+
+            if main_folder:
+                # Перемещаем файлы
+                source_folder = os.path.join(self.settings['PROJECT_PATH'], 'download_from_pyrus')
+                move_files_to_folder(source_folder, main_folder, number_of_request, request_number)
+                messagebox.showinfo("Успех", "Файлы успешно организованы")
+                self.return_to_start()
         else:
-            prep_names.append(list_of_tasks[i].replace('.', ' '))
-    for file in os.listdir(f"{path}/audit_files"):
-        for task in prep_names:
-            if task not in os.listdir(f'{path}/folder') and task.split(' ')[0] not in [i.split(' ')[0] for i in os.listdir(f'{path}/folder')] \
-                    and task.split('.')[0] not in [i[0] for i in os.listdir(f'{path}/folder')]:
-                os.chdir(f'{path}/folder')
-                os.mkdir(task.split(' ')[0] + ' Запрос '
-                         + file.split('_')[2][:7]
-                         + ' '
-                         + task.split(' ')[-1])
-            else:
-                pass
+            messagebox.showerror("Ошибка", "Не удалось извлечь период аудита из имени файла")
 
-
-def make_unndo_dir():
-    derf = os.listdir('C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/prepared_files')
-    for file in derf:
-        os.chdir(
-            f"{path}/folder/{[i for i in os.listdir('C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/folder') if i.split(' ')[0] == file.split('_')[0]][0]}")
-        if os.path.isdir('Пункт ' + file.split('_')[0] + '_' + file.split('_')[1]):
-            continue
-        else:
-            os.mkdir('Пункт ' + file.split('_')[0] + '_' + file.split('_')[1])
-
-
-def find_dir():
-    derf = os.listdir('C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/prepared_files')
-    scole = []
-    for i in derf:
-        if i.split('_')[0] in [j.split(' ')[0] for j in os.listdir(topath)]:
-            file = i
-            filed = file.split('_')
-            scole.append(filed)
-            for word in scole:
-                if word[0] in [j.split(' ')[0] for j in os.listdir(topath)]:
-                    shutil.move(f'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/prepared_files/{file}',
-                                f'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/folder/{[i for i in os.listdir(topath) if i.split(" ")[0] == word[0]][0]}/{"Пункт " + str(number_of_request) + "_" + str(request_number)}/{file}')
-                    scole.remove(word)
-                    logging.basicConfig(filename='C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/load_files_for_purpose',
-                                        filemode='a',
-                                        format='%(levelname)s %(message)s, %(asctime)s,',
-                                        datefmt='%Y.%m.%d %H:%M:%S',
-                                        level=logging.DEBUG)
-
-                    logging.info(f'{file} send to disc L by {os.getenv("username")} by')
+    def return_to_start(self):
+        """Возврат в начальное состояние"""
+        self.number_of_request_entry.delete(0, 'end')
+        self.request_number_entry.delete(0, 'end')
 
 if __name__ == '__main__':
-    find_request_number()
-    make_dir()
-    make_unndo_dir()
-    find_dir()
+    app = Application()
+    app.mainloop()
