@@ -4,6 +4,7 @@ import shutil
 import logging
 import json
 from tkinter import Tk, Label, Entry, Button, messagebox
+from tkinter.filedialog import askdirectory  # Импорт модуля для выбора папки
 from apscheduler.schedulers.background import BackgroundScheduler
 import tzlocal
 from datetime import datetime
@@ -20,7 +21,8 @@ DEFAULT_SETTINGS = {
     'PROJECT_PATH': 'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder',
     'topath': 'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/folder',
     'archive_path': 'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/file_to_l_or_to_audit',
-    'l_disk_path': 'L:/Analiz/01. МСФО/01. Рабочие файлы/'
+    'l_disk_path': 'L:/Analiz/01. МСФО/01. Рабочие файлы/',
+    'audit_file': 'C:/Users/aleksandrovva1/Desktop/spare_files_for_folder/audit_files'
 }
 
 # Настройки логирования
@@ -51,14 +53,16 @@ class Application(Tk):
     def __init__(self):
         super().__init__()
         self.title("Управление задачами")
-        self.geometry("650x500")
+        self.geometry("750x500")  # Увеличиваем размер окна для удобства
 
         self.settings = load_settings()
 
+        # Поля ввода с увеличенной шириной
         self.project_path_entry = Entry(self, width=60)
         self.topath_entry = Entry(self, width=60)
         self.archive_path_entry = Entry(self, width=60)
         self.l_disk_path_entry = Entry(self, width=60)
+        self.audit_files_folder_entry = Entry(self, width=60)
 
         self.number_of_request_entry = Entry(self)
         self.request_number_entry = Entry(self)
@@ -70,31 +74,48 @@ class Application(Tk):
         Label(self, text="Путь к проекту:").grid(row=0, column=0, padx=10, pady=10)
         self.project_path_entry.grid(row=0, column=1, padx=10, pady=10)
         self.project_path_entry.insert(0, self.settings['PROJECT_PATH'])
+        Button(self, text="Выбрать", command=lambda: self.select_path(self.project_path_entry)).grid(row=0, column=2, padx=10, pady=10)
 
         Label(self, text="Путь к папке:").grid(row=1, column=0, padx=10, pady=10)
         self.topath_entry.grid(row=1, column=1, padx=10, pady=10)
         self.topath_entry.insert(0, self.settings['topath'])
+        Button(self, text="Выбрать", command=lambda: self.select_path(self.topath_entry)).grid(row=1, column=2, padx=10, pady=10)
 
         Label(self, text="Путь к архиву:").grid(row=2, column=0, padx=10, pady=10)
         self.archive_path_entry.grid(row=2, column=1, padx=10, pady=10)
         self.archive_path_entry.insert(0, self.settings['archive_path'])
+        Button(self, text="Выбрать", command=lambda: self.select_path(self.archive_path_entry)).grid(row=2, column=2, padx=10, pady=10)
 
         Label(self, text="Путь к L диску:").grid(row=3, column=0, padx=10, pady=10)
         self.l_disk_path_entry.grid(row=3, column=1, padx=10, pady=10)
         self.l_disk_path_entry.insert(0, self.settings['l_disk_path'])
+        Button(self, text="Выбрать", command=lambda: self.select_path(self.l_disk_path_entry)).grid(row=3, column=2, padx=10, pady=10)
 
-        Button(self, text="Сохранить настройки", command=self.save_settings).grid(row=4, column=0, columnspan=2,
-                                                                                  padx=10, pady=10)
-        Label(self, text="Номер запроса:").grid(row=5, column=0, padx=10, pady=10)
-        self.number_of_request_entry.grid(row=5, column=1, padx=10, pady=10)
+        Label(self, text="Путь к папке с аудит файлами:").grid(row=4, column=0, padx=10, pady=10)
+        self.audit_files_folder_entry.grid(row=4, column=1, padx=10, pady=10)
+        self.audit_files_folder_entry.insert(0, self.settings['audit_file'])
+        Button(self, text="Выбрать", command=lambda: self.select_path(self.audit_files_folder_entry)).grid(row=4,column=2,padx=10,pady=10)
 
-        Label(self, text="Пункт запроса:").grid(row=6, column=0, padx=10, pady=10)
-        self.request_number_entry.grid(row=6, column=1, padx=10, pady=10)
+        Button(self, text="Сохранить настройки", command=self.save_settings).grid(row=5, column=0, columnspan=3, padx=10, pady=10)
+        Label(self, text="Номер запроса:").grid(row=6, column=0, padx=10, pady=10)
+        self.number_of_request_entry.grid(row=6, column=1, padx=10, pady=10, sticky="w")
 
-        Button(self, text="Старт", command=self.start_process).grid(row=7, column=0, columnspan=2, pady=10)
+        Label(self, text="Пункт запроса:").grid(row=7, column=0, padx=10, pady=10)
+        self.request_number_entry.grid(row=7, column=1, padx=10, pady=10, sticky="w")
 
-        Button(self, text="Старт задачи", command=self.start_tasks).grid(row=8, column=0, columnspan=2, pady=10)
-        Button(self, text="Остановить задачи", command=self.stop_tasks).grid(row=9, column=0, columnspan=2, pady=10)
+        Button(self, text="Старт", command=self.start_process).grid(row=8, column=0, columnspan=3, pady=10)
+
+        Button(self, text="Запустить процесс отправки документов в конце рабочего дня", command=self.start_tasks).grid(
+            row=9, column=0, columnspan=3, pady=10)
+        Button(self, text="Остановить процесс отправки документов в конце рабочего дня", command=self.stop_tasks).grid(
+            row=10, column=0, columnspan=3, pady=10)
+
+    def select_path(self, entry_widget):
+        """Открывает диалоговое окно для выбора папки и вставляет путь в указанный Entry"""
+        selected_path = askdirectory()  # Открываем диалоговое окно для выбора папки
+        if selected_path:  # Если папка выбрана
+            entry_widget.delete(0, 'end')  # Очищаем поле ввода
+            entry_widget.insert(0, selected_path)  # Вставляем выбранный путь
 
     def save_settings(self):
         """Сохраняет настройки в файл"""
@@ -102,6 +123,7 @@ class Application(Tk):
         self.settings['topath'] = self.topath_entry.get()
         self.settings['archive_path'] = self.archive_path_entry.get()
         self.settings['l_disk_path'] = self.l_disk_path_entry.get()
+        self.settings['audit_file'] = self.audit_files_folder_entry.get()
         save_settings(self.settings)
         messagebox.showinfo("Успех", "Настройки сохранены")
 
@@ -133,7 +155,7 @@ class Application(Tk):
             return
 
         # Путь к аудит файлам
-        audit_files_folder = os.path.join(self.settings['PROJECT_PATH'], 'audit_files')
+        audit_files_folder = self.audit_files_folder_entry.get()
         audit_file_path = os.path.join(audit_files_folder, os.listdir(audit_files_folder)[0])
 
         # Извлекаем информацию о периоде аудита из имени файла
